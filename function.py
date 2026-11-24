@@ -48,10 +48,8 @@ class Tree:
 
         :return: Возращает копию дерева
         """
-        # Создаем новый узел с такими же данными
         new_node = Tree(self.key, self.value)
         
-        # Рекурсивно копируем всех детей
         for child in self.children:
             child_copy = child.copy()
             new_node.add_child(child_copy)
@@ -182,14 +180,12 @@ class MBCSensor:
         self.lineWhiteWidth = 0
         self.lineWhiteBin = 0
         self.lineSensorDataUpdateTimer = 0
-    
-    # Делаем метод обычным (синхронным)
+
     async def lineSensorDataUpdate(self):
         await wait(0)
         if self.lineSensorTimer.time() > self.lineSensorDataUpdateTimer:
             self.lineSensorDataUpdateTimer = self.lineSensorTimer.time() + 3
-            
-            # Читаем байты синхронно (без await!)
+
             data1, data2, data3, data4, data5, data6, data7 = await self.lineSensorDevice.read(9)
             
             self.lineSensor[0] = data1 & 0xFF
@@ -282,7 +278,7 @@ class HUE12Sensor:
     
     async def update(self):
         try:
-            raw_data = await self.device.read(0) # Попробовать режим 1, если режим 0 выдает пустышку
+            raw_data = await self.device.read(0)
         except OSError:
             return False
 
@@ -310,9 +306,8 @@ class HUE12Sensor:
         return True
     
     async def get_colors_array(self):
-        await self.update() # Получаем свежие данные
+        await self.update() 
         
-        # Вытаскиваем только имя цвета (третий элемент в кортеже slots)
         colors_list = [slot[2] for slot in self.slots] 
         return colors_list
 
@@ -379,28 +374,22 @@ class Robot():
         if target_deg <= 0:
             return 0.0
 
-        # 1. Извлекаем направление (+1 для езды вперед, -1 для езды назад)
         direction = 1 if speed >= 0 else -1
         
-        # 2. Берем скорости по модулю (чтобы математика S-кривой работала корректно)
         max_spd = umath.fabs(speed)
         a_spd = umath.fabs(acc_speed)
         d_spd = umath.fabs(dcc_speed)
 
-        # Защита от некорректных скоростей
         if a_spd > max_spd: a_spd = max_spd
         if d_spd > max_spd: d_spd = max_spd
 
-        # Масштабирование дистанций
         total_ramp = acc_deg + dcc_deg
         if total_ramp > target_deg and total_ramp > 0:
             scale = target_deg / total_ramp
             acc_deg *= scale
             dcc_deg *= scale
 
-        # ==========================
-        # ФАЗА РАЗГОНА
-        # ==========================
+        # РАЗГОН
         if current_deg < acc_deg:
             if acc_deg <= 0: 
                 return max_spd * direction
@@ -411,9 +400,7 @@ class Robot():
             calc_spd = a_spd + (max_spd - a_spd) * s_curve
             return calc_spd * direction
 
-        # ==========================
-        # ФАЗА ТОРМОЖЕНИЯ
-        # ==========================
+        # ТОРМОЖЕНИЕ
         elif current_deg > target_deg - dcc_deg:
             if dcc_deg <= 0: 
                 return max_spd * direction
@@ -425,9 +412,7 @@ class Robot():
             calc_spd = d_spd + (max_spd - d_spd) * s_curve
             return calc_spd * direction
 
-        # ==========================
-        # КРЕЙСЕРСКАЯ ФАЗА
-        # ==========================
+        # С ПОСТОЯННОЙ СКОРОСТЬЮ
         else:
             return max_spd * direction
 
@@ -672,14 +657,10 @@ class Robot():
         acc_deg = max(1.0, min(45.0, target_angle_abs / 2.0))
         dcc_deg = max(1.0, min(45.0, target_angle_abs / 2.0))
         
-        # --- НАСТРОЙКИ ПИД в ПРОЦЕНТАХ (0-100%) ---
-        # Теперь kp = 3.0 означает: "1 градус ошибки дает 3% от максимальной мощности"
         kp = 2.5   
         ki = 0.5
         kd = 0.2
         
-        # Отдельная переменная для перевода процентов ПИДа в реальную скорость (град/сек)
-        # Если abs_max_speed = 500, то 1% = 5 град/сек
         speed_scale = abs_max_speed / 100.0 
 
         integral = 0
@@ -702,7 +683,6 @@ class Robot():
             if remaining_angle <= 1.0:
                 break
                 
-            # 1. Профиль скорости (S-кривая)
             current_deg = umath.fabs(current_heading - YawStart)
             profile_speed = self._get_profiled_speed(
                 current_deg=current_deg, 
@@ -714,7 +694,6 @@ class Robot():
                 dcc_deg=dcc_deg
             )
 
-            # 2. ПИД-регулятор (Считает усилие от 0 до 100+ %)
             integral += error * self.dt_sec
             derivative = (error - last_error) / self.dt_sec
             last_error = error
@@ -723,23 +702,18 @@ class Robot():
             pid_sign = 1 if pid_effort >= 0 else -1 
             pid_effort_abs = umath.fabs(pid_effort)
             
-            # Ограничиваем усилие ПИДа до 100%, чтобы не улететь в космос
             if pid_effort_abs > 100.0:
                 pid_effort_abs = 100.0
 
-            # Переводим проценты в реальную скорость через нашу новую переменную
             pid_speed = pid_effort_abs * speed_scale
             
-            # 3. СИНТЕЗ (выбираем меньшую скорость)
             speed_abs = min(profile_speed, pid_speed)
             
-            # На последних градусах отключаем лимит, чтобы ПИД плавно остановил робота
             if remaining_angle > 3.0 and speed_abs < abs_min_speed:
                 speed_abs = abs_min_speed
                 
             speed = speed_abs * pid_sign * target_sign * motor_side
 
-            # 4. СИНХРОНИЗАЦИЯ КОЛЕС
             delta_l = self.left_motor.angle() - start_l
             delta_r = self.right_motor.angle() - start_r
 
